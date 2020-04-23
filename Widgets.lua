@@ -90,7 +90,7 @@ TotalCharList = {
     ['shift'] = {'shift','shift'},
     ['slash'] = {'/','?'},
     ['space'] = {' ',' '},
-    ['tab'] = {'    ','	'},
+    ['tab'] = {'	','	'},
     ['tilde'] = {'`','~'},
     ['up'] = {'up','up'},
 }
@@ -254,7 +254,7 @@ end
 
 
 -- Converts a table into a pretty string
-function tablestring(data, sort, depth)
+function table_string(data, sort, depth)
     init = data
     local function sort_table(data, depth)
         local copy = {}
@@ -323,8 +323,6 @@ Widgets = {
     hover = {},
     priority = {},
     moving = {},
-    selected = {},
-    delete = nil,
 
     -- Adds new widget
     new = function(self, widget)
@@ -341,54 +339,64 @@ Widgets = {
 
     -- Draws all the widgets
     draw = function(self)
-        local key = input.get()
+        self.key = input.get()
+        local key, lastkey = self.key, self.lastkey
         local clicked = nil
-        if key["leftclick"] and not self.lastkey["leftclick"] then clicked = "left" end
-        if key["rightclick"] and not self.lastkey["rightclick"] then clicked = "right" end
-        local sorted_widgets = {}
-        if self.delete then self:del(self.delete); self.delete = nil end
-        for ID, pNum in pairs(self.priority) do 
-            table.insert(sorted_widgets, {ID, pNum})
+        if key["leftclick"] and not lastkey["leftclick"] then clicked = "left"
+        elseif key["rightclick"] and not lastkey["rightclick"] then clicked = "right" end
+        if (key["control"] and key["shift"]) or key["delete"] then 
+            key["leftclick"], key["rightclick"] = nil, nil 
         end
-        table.sort(sorted_widgets, function(a,b) return a[2] < b[2] end)
+        
+        local sorted_widgets = {}
+        for ID in pairs(self.widgets) do table.insert(sorted_widgets, ID) end
+        table.sort(sorted_widgets, function(a,b) return self.priority[a] < self.priority[b] end)
+        
+        if clicked then
+            local selected = nil
+            for _,ID in ipairs(sorted_widgets) do
+                local widget = self.widgets[ID]
+                widget.selected = nil
+                if widget.hover then selected = ID end
+            end
+            if selected then 
+                self.widgets[selected].selected = clicked
+                if key["delete"] then 
+                    table.remove(sorted_widgets, self.priority[selected])
+                    self:del(selected)
+                else
+                    local i = 0
+                    for k,v in pairs(self.priority) do
+                        if v > self.priority[selected] then self.priority[k] = v-1 end
+                        i = i + 1
+                    end
+                    self.priority[selected] = i
+                end
+            end
+        end
 
-        for i, v in ipairs(sorted_widgets) do
-            local ID = v[1]
+        for _,ID in ipairs(sorted_widgets) do
             local widget = self.widgets[ID]
             if not widget.hidden then
-                if widget.hover then
-                    if clicked then
-                        self.selected[ID] = clicked
-                        if key["delete"] then self.delete = widget end
-                        local i = 0
-                        for k,v in pairs(self.priority) do
-                            if v > self.priority[ID] then self.priority[k] = v-1 end
-                            i = i + 1
-                        end
-                        self.priority[ID] = i
-                    end
-                    self.hover[ID] = true
-                else 
-                    self.hover[ID] = nil
-                    if clicked then self.selected[ID] = nil end
-                end
+                if widget.hover then self.hover[ID] = true
+                else self.hover[ID] = nil end
                 widget:draw()
                 self.WidgetMover(self, widget)
             end
         end
-        self.lastkey = key
+        self.lastkey = input.get()
     end,
 
     -- Handles widget movement
     WidgetMover = function (self, widget)
-        local key = input.get()
+        local key, lastkey = input.get(), self.lastkey
         local x, y = key["xmouse"], key["ymouse"]
         local ID = widget.ID
 
         if key["control"] and key["shift"] then
-            if key["leftclick"] and not self.lastkey["leftclick"] and (widget.hover or self.moving[ID]) then
+            if key["leftclick"] and not lastkey["leftclick"] and ((widget.hover and widget.selected) or self.moving[ID]) then
                 self.moving[ID] = {x-widget.x, y-widget.y}  -- store the *distance* from cursor to coords
-            elseif key["rightclick"] and not self.lastkey["rightclick"] and widget.hover then
+            elseif key["rightclick"] and not lastkey["rightclick"] and widget.hover then
                 self.moving[ID] = false
             end
             if widget.hover then  -- display coords
@@ -416,11 +424,13 @@ Widgets = {
     -- Removes widgets
     del = function(self, ID)
         if type(ID) == "table" then ID = ID.ID end
-        if self.widgets[ID] then
+        local widget = self.widgets[ID]
+        if widget then
+            for k,v in pairs(widget) do widget[k] = nil end
             for k,v in pairs(self.priority) do
                 if v > self.priority[ID] then self.priority[k] = v - 1 end
             end
-            for _,t in pairs {self.widgets, self.priority, self.hover, self.moving, self.selected} do
+            for _,t in pairs {self.widgets, self.priority, self.hover, self.moving} do
                 t[ID] = nil
             end
         end
@@ -450,7 +460,7 @@ function InputBox(x, y, charlimit, text, flags)
 
     local function draw(self)
 
-        local key = input.get()
+        local key = Widgets.key
         local x, y, charlimit = self.x, self.y, self.charlimit
         if charlimit < 0 then charlimit = self.text:len() + 1 end
         if bit.band(self.flags,1) ~= 0 and self.event then self.text = "" end
@@ -475,7 +485,7 @@ function InputBox(x, y, charlimit, text, flags)
         end
 
         -- Checks these inputs regardless of writestate
-        if key["leftclick"] and not (key["control"] and key["shift"]) then
+        if key["leftclick"] then
             if self.hover then 
                 cursorpos = math.max(1, math.min(math.floor((key["xmouse"]-x-3)/4), self.text:len())+1)
                 self.active = true
@@ -571,7 +581,7 @@ function TextBox(x, y, text, anchor, color1, color2)
     text = text or "text"
     
     local function draw(self)
-        local key = input.get()
+        local key = Widgets.key
         local x, y = self.x, self.y
         if self.anchor == 1 then 
             x = x - 2*self.text:len()
@@ -595,12 +605,12 @@ function CheckBox(x,y)
     
     local lastkey = {}
     local function draw(self)
-        local key = input.get()
+        local key = Widgets.key
         local x, y = self.x, self.y
         self.event = false
         self.hover = cursorbounds(x, y, x+4, y+4)
 
-        if key["leftclick"] and not lastkey["leftclick"] and self.hover and not (key["control"] and key["shift"]) then
+        if key["leftclick"] and not lastkey["leftclick"] and self.hover then
             self.state = not self.state
             self.event = true
             if self.func then self.func(self.state) end
@@ -634,14 +644,14 @@ function Button(x, y, text, func)
     local lastkey
 
     local function draw(self)
-        local key = input.get()
+        local key = Widgets.key
         local tc1, tc2, bc1, bc2 = unpack(self.colors_unclicked)
         local tc3, tc4, bc3, bc4 = unpack(self.colors_clicked)
         local x1, y1, x2, y2 = self.x, self.y, self.x+4*self.text:len()+2, self.y+8
         self.event = false
         self.hover = cursorbounds(x1, y1, x2, y2)
 
-        if self.hover and key["leftclick"] and not (key["control"] and key["shift"]) and 
+        if self.hover and key["leftclick"] and 
             (self.state == true or not lastkey["leftclick"]) then
             gui.box(x1, y1, x2, y2, bc1, bc2)
             gui.text(x1+2, y1+1, self.text, tc1, tc2)
@@ -671,10 +681,10 @@ end
 -- A group of buttons where only one can be selected; returns the option name when changed
 function Radio(x, y, options)
     x, y = x or 0, y or 0
-    options = options or {"1"}
+    options = options or {""}
 
     local function draw(self)
-        local key = input.get()
+        local key = Widgets.key
         local x, y = self.x, self.y
         local tc1, tc2 = unpack(self.colors_txt)
         local bc1, bc2, bc3, bc4 = unpack(self.colors_rad)
@@ -694,7 +704,7 @@ function Radio(x, y, options)
             gui.line(x+4, y+2, x+4, y+4, bc)
             gui.text(x+8, y, v, tc1 , tc2)
             maxlen = math.max(maxlen, v:len())
-            if key["leftclick"] and cursorbounds(x, y, x+4, y+7) and not (key["control"] and key["shift"]) then
+            if key["leftclick"] and cursorbounds(x, y, x+4, y+7) then
                 if k ~= self.index then 
                     self.event = true
                     self.index = k
@@ -726,7 +736,7 @@ function Slider(x, y, left, right, step, orientation, length)
     local sliderPos = x
 
     local function draw(self)
-        local key = input.get()
+        local key = Widgets.key
         local x, y, left, right, step, length, ori = 
             self.x, self.y, self.left, self.right, self.step, self.length, self.orientation
         local linec, bc1, bc2 = self.color_line, unpack(self.color_slide)
@@ -804,7 +814,7 @@ function Window(x, y, data, charwidth, charheight)
     local function newtext(newdata)  -- parses data and updates maxv_index, maxh_index, linePositions, and datastring
         newdata = newdata or ""
         if type(newdata) == "function" then newdata = newdata() end
-        if type(newdata) == "table" then newdata = tablestring(newdata, true, 1) 
+        if type(newdata) == "table" then newdata = table_string(newdata, true, 1) 
         elseif type(newdata) == "number" then newdata = tostring(newdata) end
         if datastring ~= newdata then
             linePositions = {1}
@@ -822,7 +832,7 @@ function Window(x, y, data, charwidth, charheight)
     newtext(data)
 
     local function draw(self)
-        local key = input.get()
+        local key = Widgets.key
         if not key["leftclick"] then
             clickstate, clickhold = false, 0
             self.drag_h = false
@@ -887,7 +897,7 @@ function Window(x, y, data, charwidth, charheight)
         if maxh_index > 1 then gui.box(x1_h+scroll_h-3, y1_h-1, x1_h+scroll_h+3, y1_h+1, scroll_c1, scroll_c1) end
 
         -- Click Checks
-        if key["leftclick"] and not (key["control"] and key["shift"]) then
+        if key["leftclick"] then
             if cursorbounds(x1_v-2, y1_v+scroll_v-3, x1_v+2, y1_v+scroll_v+3) then  -- vertical scroll handle
                 self.drag_v = true
             elseif cursorbounds(x1_h+scroll_h-3, y1_h-2, x1_h+scroll_h+3, y1_h+2) then  -- horizontal scroll handle
@@ -957,7 +967,7 @@ function Window(x, y, data, charwidth, charheight)
     -- Embed a widget, causing it to move with the window, and display in front of it
     local function embed(self, widget)
         table.insert(self.embedded, {widget, widget.x-self.x, widget.y-self.y})
-        Widgets:del(widget)
+        widget.hidden = true
     end
 
     -- Detach an embedded widget
@@ -965,7 +975,7 @@ function Window(x, y, data, charwidth, charheight)
         for k,v in pairs(self.embedded) do
             if v[1] == widget then self.embedded[k] = nil end
         end
-        Widgets:new(widget)
+        widget.hidden = false
     end
 
     return Widgets:new {
@@ -982,12 +992,13 @@ end
 -- A Canvas for drawing lines and shapes
 function Canvas(x, y, width, height)
     
-    x, y = x or 0, y or 0
+    x, y = x or 0, y or 16
     width, height = width or 100, height or 100
     local bitmap
+    local background_color = 0xFFFFFFFF
     local lastkey
     local prevx, prevy
-    local modes = {"pencil", "brush", "line", "box"}
+    local modes = {"pencil", "brush", "line", "box", "circle"}
     local mode_drawings = {
         function(x,y) gui.pixel(x+4, y+4, 0x000000FF) end,
         function(x,y) 
@@ -996,6 +1007,12 @@ function Canvas(x, y, width, height)
         end,
         function(x,y) gui.line(x+2, y+6, x+6, y+2, 0x000000FF) end,
         function(x,y) gui.box(x+2, y+2, x+6, y+6, 0, 0x000000FF) end,
+        function(x,y)
+            gui.line(x+2, y+3, x+2, y+5, 0x000000FF)
+            gui.line(x+3, y+6, x+5, y+6, 0x000000FF)
+            gui.line(x+6, y+5, x+6, y+3, 0x000000FF)
+            gui.line(x+5, y+2, x+3, y+2, 0x000000FF)
+        end,
         function(x,y) 
             gui.line(x+2, y+2, x+2, y+6, 0x000000FF)
             gui.line(x+2, y+6, x+6, y+6, 0x000000FF)
@@ -1003,12 +1020,12 @@ function Canvas(x, y, width, height)
         end,
     }
     local mode_click = false
-    local temp  -- determines whether a temporary shape is drawn on the canvas
-    local background_color = 0xFFFFFFFF
+    local temp_shape  -- determines whether a temporary shape is drawn on the canvas
+    local last_bound_state = false  -- whether the cursor was in the boundaries last frame
+
 
     local function draw(self)
-        local key = input.get()
-        if key["control"] and key["shift"] then key["leftclick"] = nil end
+        local key = Widgets.key
         if width ~= self.width or height ~= self.height or bitmap ~= self.bitmap then
             self.bitmap = {}
             for i=1,self.width do table.insert(self.bitmap, {}) end
@@ -1016,7 +1033,7 @@ function Canvas(x, y, width, height)
             height = self.height
             bitmap = self.bitmap
         end
-        local x1, y1, x2, y2 = self.x, self.y, self.x+self.width+1, self.y+self.height+1
+        local x1, y1, x2, y2 = self.x-1, self.y-1, self.x+self.width, self.y+self.height
         local color = self.color
         local mode = self.mode
 
@@ -1024,7 +1041,6 @@ function Canvas(x, y, width, height)
         gui.box(x1, y1, x2, y2, background_color, 0x000000FF)
 
         -- Mode options
-        local mode_pos = {}
         local offset = 0
         for i=1,#modes+1 do
             gui.box(x1+offset, y1-16, x1+offset+8, y1-8, 0xFFFFFFFF, 0x000000FF)
@@ -1060,20 +1076,28 @@ function Canvas(x, y, width, height)
         end
 
         -- Drawing Area
-        if cursorbounds(x1+1, y1+1, x2-1, y2-1) then
+        if cursorbounds(x1+1, y1+1, x2-1, y2-1) or last_bound_state then
             gui.pixel(key["xmouse"], key["ymouse"], color)
-            local edgeguard = 0
             if mode == "brush" then 
-                edgeguard = 1
                 gui.line(key["xmouse"]-1, key["ymouse"], key["xmouse"]+1, key["ymouse"], color)
                 gui.line(key["xmouse"], key["ymouse"]-1, key["xmouse"], key["ymouse"]+1, color)
             end
-            local relx = math.min(width-edgeguard, math.max(1+edgeguard, key["xmouse"]-x1))
-            local rely = math.min(height-edgeguard, math.max(1+edgeguard, key["ymouse"]-y1))
+            local relx = key["xmouse"]-x1
+            local rely = key["ymouse"]-y1
             if prevx == nil or prevy == nil then prevx, prevy = relx, rely end
-            if temp then
-                if mode == "line" then gui.line(prevx+x1, prevy+y1, relx+x1, rely+y1, color)
-                elseif mode == "box" then gui.box(prevx+x1, prevy+y1, relx+x1, rely+y1, 0x00000000, color)
+            if temp_shape then
+                if temp_shape == "line" then gui.line(prevx+x1, prevy+y1, relx+x1, rely+y1, color)
+                elseif temp_shape == "box" then gui.box(prevx+x1, prevy+y1, relx+x1, rely+y1, 0x00000000, color)
+                elseif temp_shape == "circle" then
+                    local radius = math.sqrt((relx-prevx)^2 + (rely-prevy)^2)
+                    local pixelcount = math.max(math.floor(radius*10))
+                    local ratio = 2*math.pi/pixelcount
+                    for angle=1,pixelcount do
+                        local x,y = radius*math.cos(angle*ratio)+relx, radius*math.sin(angle*ratio)+rely
+                        if x >= 1 and x <= self.width and y >= 1 and y <= self.height then
+                            gui.pixel(x+x1, y+y1, color)
+                        end
+                    end
                 end
             end
             if key["leftclick"] then
@@ -1088,32 +1112,49 @@ function Canvas(x, y, width, height)
                     self:line(prevx, prevy-1, relx, rely-1, color)
                     self:line(prevx, prevy+1, relx, rely+1, color)
                     prevx, prevy = relx, rely
-                elseif mode == "line" then
-                    temp = true
-                elseif mode == "box" then
-                    temp = true
+                else temp_shape = mode
                 end
-            elseif temp then
-                if mode == "line" then
+            elseif temp_shape then
+                if temp_shape == "line" then
                     self:line(prevx, prevy, relx, rely, color)
-                elseif mode == "box" then
+                elseif temp_shape == "box" then
                     self:line(prevx, prevy, relx, prevy, color)
                     self:line(relx, prevy, relx, rely, color)
                     self:line(relx, rely, prevx, rely, color)
                     self:line(prevx, rely, prevx, prevy, color)
+                elseif temp_shape == "circle" then
+                    local radius = math.sqrt((relx-prevx)^2 + (rely-prevy)^2)
+                    local pixelcount = math.max(math.floor(radius*10))
+                    local ratio = 2*math.pi/pixelcount
+                    for angle=1,pixelcount do
+                        local x,y = radius*math.cos(angle*ratio)+relx, radius*math.sin(angle*ratio)+rely
+                        if x >= 1 and x <= self.width and y >= 1 and y <= self.height then
+                            self.bitmap[math.floor(x+0.5)][math.floor(y+0.5)] = color
+                        end
+                    end
                 end
-                temp = nil
+                temp_shape = nil
             end
         end
 
-        self.hover = cursorbounds(x1, y1, x2, y2) or cursorbounds(x1, y1-16, x1+5*#self.palette, y1)
-        if not key["leftclick"] then temp, prevx, prevy = nil, nil, nil end
+        last_bound_state = cursorbounds(x1+1, y1+1, x2-1, y2-1)  -- check previous frame
+        self.hover = cursorbounds(x1, y1, x2, y2) or cursorbounds(x1, y1-6, x1+5*#self.palette, y1) or 
+            cursorbounds(x1, y1-16, x1+10*(#modes+1)-2, y1)
+        if not key["leftclick"] then 
+            temp_shape, prevx, prevy = nil, nil, nil
+        elseif mode == "pencil" or mode == "brush" then  -- track cursor when out of bounds for better entry
+            prevx, prevy = key["xmouse"]-x1, key["ymouse"]-y1
+        end
         lastkey = key
     end
 
     local function line(self, x1, y1, x2, y2, color)
         if color == background_color then color = nil end
         local bitmap = self.bitmap
+        x1 = math.min(self.width, math.max(1, x1))
+        x2 = math.min(self.width, math.max(1, x2))
+        y1 = math.min(self.height, math.max(1, y1))
+        y2 = math.min(self.height, math.max(1, y2))
         local xdir, ydir = 1,1
         if x2 < x1 then xdir = -1 end
         if y2 < y1 then ydir = -1 end

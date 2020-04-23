@@ -999,11 +999,13 @@ function Canvas(x, y, width, height)
             gui.line(x+6, y+6, x+6, y+2, 0x000000FF)
         end,
     }
+    local mode_click = false
     local temp
     local background_color = 0xFFFFFFFF
 
     local function draw(self)
         local key = input.get()
+        if key["control"] and key["shift"] then key["leftclick"] = nil end
         if width ~= self.width or height ~= self.height or bitmap ~= self.bitmap then
             self.bitmap = {}
             for i=1,self.width do table.insert(self.bitmap, {}) end
@@ -1026,11 +1028,17 @@ function Canvas(x, y, width, height)
             mode_drawings[i](x1+offset, y1-16)
             offset = offset + 10
         end
-        if key["leftclick"] and not lastkey["leftclick"] and cursorbounds(x1, y1-16, x1+10*#modes+8, y1-8) then
+        if key["leftclick"] and cursorbounds(x1, y1-16, x1+10*#modes+8, y1-8) then
             local mode_index = math.floor((key["xmouse"] - x1)/10)+1
-            if mode_index <= #modes then self.mode = modes[mode_index]
-            else self:clear() end
-            gui.box(x1+mode_index*10-10, y1-16, x1+8+mode_index*10-10, y1-8, "#00000080")
+            if not lastkey["leftclick"] then
+                mode_click = mode_index
+                if mode_index <= #modes then self.mode = modes[mode_index]
+                else self:clear() end
+            end
+            if mode_click == mode_index then 
+                gui.box(x1+mode_index*10-10, y1-16, x1+8+mode_index*10-10, y1-8, "#00000040")
+            end
+        else mode_click = false
         end
 
         -- Palette
@@ -1041,15 +1049,15 @@ function Canvas(x, y, width, height)
             self.color = self.palette[math.floor((key["xmouse"] - x1)/5) + 1]
         end
 
-         -- Draws the bitmap to the screen
+        -- Draws the bitmap to the screen
         for x,column in pairs(bitmap) do
-            for y in pairs(column) do
-                gui.pixel(x+x1, y+y1, bitmap[x][y])
+            for y, color in pairs(column) do
+                gui.pixel(x+x1, y+y1, color)
             end
         end
 
         -- Drawing Area
-        if cursorbounds(x1+1, y1+1, x2-1, y2-1) and not (key["control"] and key["shift"]) then
+        if cursorbounds(x1+1, y1+1, x2-1, y2-1) then
             gui.pixel(key["xmouse"], key["ymouse"], color)
             local edgeguard = 0
             if mode == "brush" then 
@@ -1095,14 +1103,13 @@ function Canvas(x, y, width, height)
             end
         end
 
-        self.hover = cursorbounds(x1, y1, x2, y2)
+        self.hover = cursorbounds(x1, y1, x2, y2) or cursorbounds(x1, y1-16, x1+5*#self.palette, y1)
         if not key["leftclick"] then temp, prevx, prevy = nil, nil, nil end
         lastkey = key
     end
 
     local function line(self, x1, y1, x2, y2, color)
         if color == background_color then color = nil end
-        if not self.hover then return end
         local bitmap = self.bitmap
         local xdir, ydir = 1,1
         if x2 < x1 then xdir = -1 end

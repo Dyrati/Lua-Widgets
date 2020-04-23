@@ -63,7 +63,7 @@ Creates a box where the user can type text
 - You can click on the box to begin typing.  Press `ctrl`+`backspace` to delete everything left of your cursor, or `ctrl`+`delete` to delete everything to the right.  `Home` and `End` work as you'd expect them to.  
 - You can bind functions to it by modifying its **`func`** attribute.  Pressing `enter` will call that function, with the box's text as the first argument.
 
-- There is a built in function called **`exec`**, that is designed for this widget.  It will execute the commands in the input field like a lua interpreter. Example: `inputfield = InputBox(10, 10); inputfield.func = exec`
+- The file includes a global function called **`exec`**, that is designed for this widget.  It will execute the commands in the input field like a lua interpreter. Example: `inputfield = InputBox(10, 10); inputfield.func = exec`
 
 - If you want to limit the accepted inputs, then you can modify its **`charlist`** attribute.  You can set it equal to any of the following built-in tables:
   - TotalCharList -- default, accepts all characters
@@ -159,7 +159,7 @@ end
 - `color_slide = {"#C0C0C0FF", "#000000FF"}`
 
 **Info**  
-- Creates a slider that can be clicked and dragged to modify its value.  To acquire that value, you can check its `value` attribute.  You can also set is `func` attribute, which calls a function each time the slider is moved, and sends its value as the first argument.  
+- Creates a slider that can be clicked and dragged to modify its value.  To acquire that value, you can check its `value` attribute.  You can also set its `func` attribute, which calls a function each time the slider is moved, and sends its value as the first argument.  
 
 
 ## Window  
@@ -181,8 +181,10 @@ end
 - Set its **`data`** attribute to display info on screen.  The data may be any table, string, or function.  If it's a table, it will format it for you.  Strings are displayed normally.  Functions should return either strings or tables, which it will display.
 - You can select a line by clicking on it, which automatically sets the window's **`line`** attribute equal to the text of that line
 - You can embed other widgets into this window, causing them to move around with it, and always be displayed in front of it
-- If you don't need real time updates, you can set its **`auto_update`** attribute to `false` for speed
-
+- If you don't need real time updates, you can set its **`auto_update`** attribute to `false`, which speeds it up significantly
+- The file includes a global function called **`table_string`**, which this widget uses to convert table data to a string.
+  - You can call it yourself with the parameters `data, sort, depth`.  `Data` is the table you're using, `Sort` is whether to sort it alphabetically or not, and `Depth` is the recursion depth to iterate through.  You can then set the `data` attribute of the widget equal
+to the return of `table_string`
 
 **Methods**  
 - `embed(widget)` - embeds a widget into the window
@@ -201,18 +203,20 @@ end
 
 **Info**  
 - Creates a canvas that's like a mini MS Paint
-- Has four modes:
+- Has six buttons:
   - pencil mode
   - brush mode
   - line mode
   - box mode
-  - the last mode is for clearing the canvas
+  - circle mode
+  - clear the canvas
   
   
 ## Other Info  
-- `Widgets` is a global variable that keeps track of all the widgets.  `Widgets:draw()` must be in your main loop.  You can access useful info such as which widgets are currently selected or hovered over by reading the `Widgets.selected` or `Widgets.hover` attributes.
-- It doesn't know what you named the widgets though, so it gives each new widget an ID number as its `ID` attribute, and uses those to track them.  
+- `Widgets` is a global variable that keeps track of all the widgets.  `Widgets:draw()` must be in your main loop.  You can access useful info such as which widgets are currently hovered over by reading the `Widgets.hover` attribute.
+  - It doesn't know what you named the widgets though, so it gives each new widget an ID number as its `ID` attribute, and uses those to track them.  
 - You can delete widgets programmatically by calling their `del()` method. `Example: inputfield:del()`
 - If you want to bind more than one function to a widget, you'll have to make an intermediary function that calls more functions
   - Example: `inputfield.func = function(text) exec(text); print(text); parse(text) end`
-- If you want a smaller file, you can delete any widgets below the big `--WIDGETS--` comment in the code without breaking anything
+- Widgets have a `selected` attribute, which is only active if the widget is currently selected, and is set to either `right` or `left` depending on which mouse button you clicked on it with
+- If you want a smaller file, you can delete any unused widgets below the big `--WIDGETS--` comment in the code without breaking anything

@@ -124,7 +124,6 @@ LetterList = {
     ['Z'] = {'z','Z'},
 }
 
-
 NumberList = {
     ['0'] = {'0',')'},
     ['1'] = {'1','!'},
@@ -137,7 +136,6 @@ NumberList = {
     ['8'] = {'8','*'},
     ['9'] = {'9','('},
 }
-
 
 HexNumberList = {
     ['0'] = {'0',')'},
@@ -158,14 +156,12 @@ HexNumberList = {
     ['F'] = {'f','F'},
 }
 
-
 DirectionList = {
     ['up'] = {'up','up'},
     ['down'] = {'down','down'},
     ['left'] = {'left','left'},
     ['right'] = {'right','right'},
 }
-
 
 NumpadList = {
     ['numpad*'] = {'*','*'},
@@ -184,7 +180,6 @@ NumpadList = {
     ['numpad8'] = {'8','8'},
     ['numpad9'] = {'9','9'},
 }
-
 
 FunctionKeyList = {
     ['F1'] = {'F1','F1'},
@@ -792,7 +787,7 @@ function Slider(x, y, left, right, step, orientation, length)
 end
 
 
--- A window for displaying text data; data may be a string or a table
+-- A window for displaying text data; data may be a string or a table, or a function that returns a string/table
 function Window(x, y, data, charwidth, charheight)
 
     x, y = x or 0, y or 0
@@ -936,6 +931,7 @@ function Window(x, y, data, charwidth, charheight)
         self.hover = cursorbounds(x1, y1, x2+6, y2+6)
         if key["escape"] and self.hover then self.highlight = nil end
 
+        -- Update position and draw embedded widgets
         for k,v in pairs(self.embedded) do
             local widget, relx, rely = unpack(v)
             widget.x = relx + self.x
@@ -946,19 +942,25 @@ function Window(x, y, data, charwidth, charheight)
         lastkey = key
     end
 
+    -- Find first instance of string in data, starting from current position
     local function search(self, string, start)
-        local pos = datastring:find(string:sub(start or 1))
+        start = start or linePositions[self.index]
+        local pos = datastring:sub(start):find(string)
+        if not pos then pos = datastring:sub(1, start):find(string)
+        else pos = pos + start - 1 end
         if pos then 
             self.index = binsearch(linePositions, pos) or 1 
             self.highlight = self.index
         end
     end
 
+    -- Embed a widget, causing it to move with the window, and display in front of it
     local function embed(self, widget)
         table.insert(self.embedded, {widget, widget.x-self.x, widget.y-self.y})
         Widgets:del(widget)
     end
 
+    -- Detach an embedded widget
     local function detach(self, widget)
         for k,v in pairs(self.embedded) do
             if v[1] == widget then self.embedded[k] = nil end
@@ -977,6 +979,7 @@ function Window(x, y, data, charwidth, charheight)
 end
 
 
+-- A Canvas for drawing lines and shapes
 function Canvas(x, y, width, height)
     
     x, y = x or 0, y or 0
@@ -1000,7 +1003,7 @@ function Canvas(x, y, width, height)
         end,
     }
     local mode_click = false
-    local temp
+    local temp  -- determines whether a temporary shape is drawn on the canvas
     local background_color = 0xFFFFFFFF
 
     local function draw(self)
@@ -1051,7 +1054,7 @@ function Canvas(x, y, width, height)
 
         -- Draws the bitmap to the screen
         for x,column in pairs(bitmap) do
-            for y, color in pairs(column) do
+            for y,color in pairs(column) do
                 gui.pixel(x+x1, y+y1, color)
             end
         end

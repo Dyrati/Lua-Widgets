@@ -62,6 +62,7 @@ Creates a box where the user can type text
 **Info**  
 - You can click on the box to begin typing.  Press `ctrl`+`backspace` to delete everything left of your cursor, or `ctrl`+`delete` to delete everything to the right.  `Home` and `End` work as you'd expect them to.  
 - You can bind functions to it by modifying its **`func`** attribute.  Pressing `enter` will call that function, with the box's text as the first argument.
+- Press up to view the history of the input box
 
 - The file includes a global function called **`exec`**, that is designed for this widget.  It will execute the commands in the input field like a lua interpreter. Example: `inputfield = InputBox(10, 10); inputfield.func = exec`
 
@@ -177,7 +178,7 @@ end
 - `colors_txt = {"#FFFFFFFF", "#000000FF"}`; text, text border
 
 **Info**  
-- Creates a window that displays data.  It has scroll bars!
+- Creates a window that displays data.  It has scroll bars, and a search feature
 - Set its **`data`** attribute to display info on screen.  The data may be any table, string, or function.  If it's a table, it will format it for you.  Strings are displayed normally.  Functions should return either strings or tables, which it will display.
 - You can select a line by clicking on it, which automatically sets the window's **`line`** attribute equal to the text of that line
 - You can embed other widgets into this window, causing them to move around with it, and always be displayed in front of it
@@ -199,22 +200,49 @@ to the return of `table_string`
 - `width, height` - the width and height of the drawing region
 
 **Default Palette**
-- `palette={"#000000FF", "#FFFFFFFF", "#808080FF", "#ED1C24FF", "#FF7F27FF", "#FFF200FF", "#22B14CFF", "#00A2E8FF", "#3F48CCFF", "#A349A4FF"}`  
+```
+palette = {
+        0x000000FF, 0xFFFFFFFF, 0x00000000, 0x808080FF, 
+        0xC3C3C3FF, 0xB97A57FF, 0x880015FF, 0xED1C24FF, 
+        0xFFAEC9FF, 0xFF7F27FF, 0xFFC90EFF, 0xFFF200FF, 
+        0x22B14CFF, 0xB5E61DFF, 0x00A2E8FF, 0x99D9EAFF, 
+        0x3F48CCFF, 0x7092BEFF, 0xA349A4FF, 0xC8BFE7FF, 
+}
+```
 
 **Info**  
 - Creates a canvas that's like a mini MS Paint
-- Has six buttons:
+- Has 10 buttons:
   - pencil mode
   - brush mode
   - line mode
   - box mode
   - circle mode
-  - clear the canvas
-  
+  - triangle mode
+  - fill
+  - dropper
+  - undo
+  - clear
+- Has a max undo history of 10 actions
+- Transparent colors may be used on the palette, allowing you to draw on things in the background
+
+**Attributes**
+- `show` - set to false to hide the border and buttons
+- `mode` - set to "pencil", "brush", "line", "box", "circle", "triangle", "fill", or "dropper" to pick a mode
+- `color` - set to a number to pick a custom color
+- `width, height` - set the dimensions of the canvas
+- `background` - the default background color
+- `palette` - the available palette
+
+**Methods**
+- `undo()` - undoes the last action
+- `export(filepath)` - exports the canvas to the specified filepath in `.bmp` format
+- `import(filepath)` - imports a bitmap from a `.bmp` file to the canvas
+
   
 ## Other Info  
-- `Widgets` is a global variable that keeps track of all the widgets.  `Widgets:draw()` must be in your main loop.  You can access useful info such as which widgets are currently hovered over by reading the `Widgets.hover` attribute.
-  - It doesn't know what you named the widgets though, so it gives each new widget an ID number as its `ID` attribute, and uses those to track them.  
+- `Widgets` is a global variable that keeps track of all the widgets.  `Widgets:draw()` must be in your main loop.  You can access useful info such as which widgets are currently hovered over or selected by reading the `Widgets.hover` or `Widgets.selected` attributes.
+  - The Widget Manager doesn't know what you named the widgets, so it gives each new widget an ID number as its `ID` attribute, and uses those to track them.  
 - You can delete widgets programmatically by calling their `del()` method. `Example: inputfield:del()`
 - If you want to bind more than one function to a widget, you'll have to make an intermediary function that calls more functions
   - Example: `inputfield.func = function(text) exec(text); print(text); parse(text) end`

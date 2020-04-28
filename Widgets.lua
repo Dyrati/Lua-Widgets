@@ -1101,7 +1101,7 @@ function Canvas(x, y, width, height)
             local ratio = 2*math.pi/pixelcount
             for angle=1,pixelcount do
                 local x,y = radius*math.cos(angle*ratio)+x2, radius*math.sin(angle*ratio)+y2
-                self:pixel(x, y, color, temp)
+                self:pixel(math.floor(x+0.5), math.floor(y+0.5), color, temp)
             end
         end,
         triangle = function(self, x1, y1, x2, y2, color, temp)
@@ -1250,57 +1250,30 @@ function Canvas(x, y, width, height)
 
 
     local function pixel(self, x, y, color, temp)
-        if x >= 1 and x <= self.width and y > 1 and y <= self.width then
+        if x >= 1 and x <= self.width and y >= 1 and y <= self.width then
             if temp then gui.pixel(x+self.x-1, y+self.y-1, color)
-            else self.bitmap[math.floor(x+0.5)][math.floor(y+0.5)] = color end
+            else self.bitmap[x][y] = color end
         end
     end
 
 
     local function line(self, x1, y1, x2, y2, color, temp)
         local bitmap = self.bitmap
-        local width, height = self.width, self.height
-        
-        local function bound(value, max)
-            return math.floor(0.5 + math.min(max, math.max(1, value)))
-        end
 
-        local xdir, ydir = 1,1
-        if x2 < x1 then xdir = -1 end
-        if y2 < y1 then ydir = -1 end
-        if x2 == x1 then
-            x2, y1, y2 = math.floor(x2+0.5), bound(y1, height), bound(y2, height)
-            if x2 >= 1 and x2 <= width then
-                for i=y1,y2,ydir do
-                    if temp then gui.pixel(x2+self.x-1, i+self.y-1, color)
-                    else bitmap[x2][i] = color end
-                end
+        x1, y1, x2, y2 = math.floor(0.5+x1), math.floor(0.5+y1), math.floor(0.5+x2), math.floor(0.5+y2)
+        if x1 == x2 and y1 == y2 then 
+            self:pixel(x1, y1, color, temp) 
+        end
+        if x1 ~= x2 then
+            local slope = (y2-y1)/(x2-x1)
+            for i=math.min(x1, x2), math.max(x1, x2) do 
+                self:pixel(i, y1+math.floor((i-x1)*slope+0.5), color, temp)
             end
-        elseif y2 == y1 then
-            y2, x1, x2 = math.floor(y2+0.5), bound(x1, width), bound(x2, width)
-            if y2 >= 1 and y2 <= height then
-                for i=x1,x2,xdir do 
-                    if temp then gui.pixel(i+self.x-1, y2+self.y-1, color)
-                    else bitmap[i][y2] = color end
-                end
-            end
-        else
-            x1, y1, x2, y2 = math.floor(0.5+x1), math.floor(0.5+y1), math.floor(0.5+x2), math.floor(0.5+y2)
-            local slope1 = (y2-y1)/(x2-x1)
-            local slope2 = (x2-x1)/(y2-y1)
-            for i=0, x2-x1, xdir do 
-                local x, y = x1+i, y1+math.floor(i*slope1+0.5)
-                if x >=1 and x <= width and y >= 1 and y <= height then
-                    if temp then gui.pixel(x+self.x-1, y+self.y-1, color)
-                    else bitmap[x][y] = color end
-                end
-            end
-            for i=0, y2-y1, ydir do
-                local x, y = x1+math.floor(i*slope2+0.5), y1+i
-                if x >=1 and x <= width and y >= 1 and y <= height then
-                    if temp then gui.pixel(x+self.x-1, y+self.y-1, color)
-                    else bitmap[x][y] = color end
-                end
+        end
+        if y1 ~= y2 then
+            local slope = (x2-x1)/(y2-y1)
+            for i=math.min(y1, y2), math.max(y1, y2) do
+                self:pixel(x1+math.floor((i-y1)*slope+0.5), i, color, temp)
             end
         end
     end
@@ -1350,7 +1323,7 @@ function Canvas(x, y, width, height)
         compress_next = true
     end
 
-
+    -- Utilizes color list, difference comparison, and run-length-encoding
     local function compress_copy(self)
         local mismatch = false
         local bitmap = self.bitmap

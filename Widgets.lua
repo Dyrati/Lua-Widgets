@@ -254,35 +254,45 @@ end
 
 
 -- Converts a table into a pretty string
-function table_string(data, sort, depth)
-    init = data
-    local function sort_table(data, depth)
-        local copy = {}
-        for k,v in pairs(data) do
-            if type(v) == "table" and depth > 0 then
-                if v == init or v == _G then table.insert(copy, {k})
-                else table.insert(copy, {k..":\n", sort_table(v, depth-1)}) end
+function table_string(array, maxdepth)
+    local sorted = {}
+    for k,v in pairs(array) do table.insert(sorted, {tostring(k), v}) end
+    table.sort(sorted, function(a,b) return a[1] < b[1] end)
+    maxdepth = maxdepth or 1
+
+    local function expand(array, target, depth)
+        target = target or {}
+        depth = depth or 1
+        local padding = string.rep("  ", depth)
+        for k,v in pairs(array) do
+            if type(v) == "table" and depth < maxdepth then
+                table.insert(target, padding..k..":")
+                expand(v, target, depth+1)
             else
-                table.insert(copy, {k..": "..tostring(v).."\n"})
+                table.insert(target, padding..k..": "..tostring(v))
             end
         end
-        if sort then
-            table.sort(copy, function (a, b) return a[1] < b[1] end)
-        end
-        return copy
+        return target
     end
-    local sorted = sort_table(data, depth or math.huge)
-    local function get_string(data, depth)
-        local s = ""
-        for i,v in ipairs(data) do
-            s = s .. string.rep(" ", 2*depth) .. v[1]
-            if v[2] then 
-                s = s .. get_string(v[2], depth+1)
-            end
+
+    local function extend(array1, array2)
+        for i,v in ipairs(array2) do
+            array1[#array1+1] = v
         end
-        return s
     end
-    return get_string(sorted, 0)
+
+    local str_table = {}
+    for i,v in ipairs(sorted) do
+        local key, val = unpack(v)
+        if type(val) == "table" then
+            table.insert(str_table, key..": ")
+            expand(val, str_table, 1)
+        else
+            table.insert(str_table, key..": "..tostring(val))
+        end
+    end
+
+    return table.concat(str_table, "\n")
 end
 
 
@@ -298,10 +308,11 @@ end
 -- Performs a binary search on a sorted array
 local function binsearch(array, value)
     local low, high = 1, #array
-    if value < array[1] or value > array[#array] then return nil end
+    if value < array[1] then return 0
+    elseif value >= array[#array] then return #array end
 
     while true do
-        local mid = math.floor((low + high)/2)
+        local mid = math.floor((low + high)/2 + 0.5)
         local val1, val2 = array[mid], array[mid+1]
         if value >= val1 and value < val2 then
             return mid
@@ -323,6 +334,8 @@ Widgets = {
     hover = {},
     priority = {},
     moving = {},
+    selected = {},
+    delete = {},
 
     -- Adds new widget
     new = function(self, widget)
@@ -330,7 +343,7 @@ Widgets = {
         for w in ipairs(self.widgets) do i = i + 1 end
         widget.ID = i
         self.widgets[widget.ID] = widget
-        widget.del = function(self) Widgets:del(self) end
+        widget.del = function(self) Widgets.delete[widget.ID] = self end
         local maxp = 0
         for k,v in pairs(self.priority) do maxp = math.max(maxp, v) end
         self.priority[widget.ID] = maxp + 1
@@ -347,6 +360,8 @@ Widgets = {
         if (key["control"] and key["shift"]) or key["delete"] then 
             key["leftclick"], key["rightclick"] = nil, nil 
         end
+
+        for _,widget in pairs(self.delete) do self:del(widget) end
         
         local sorted_widgets = {}
         for ID in pairs(self.widgets) do table.insert(sorted_widgets, ID) end
@@ -357,14 +372,17 @@ Widgets = {
             for _,ID in ipairs(sorted_widgets) do
                 local widget = self.widgets[ID]
                 widget.selected = nil
+                self.selected[ID] = nil
                 if widget.hover then selected = ID end
             end
-            if selected then 
-                self.widgets[selected].selected = clicked
+            if selected then
+                local widget = self.widgets[selected]
+                widget.selected = clicked
                 if key["delete"] then 
                     table.remove(sorted_widgets, self.priority[selected])
                     self:del(selected)
                 else
+                    self.selected[selected] = widget
                     local i = 0
                     for k,v in pairs(self.priority) do
                         if v > self.priority[selected] then self.priority[k] = v-1 end
@@ -413,10 +431,10 @@ Widgets = {
                 widget.x = x - self.moving[ID][1]
                 widget.y = y - self.moving[ID][2]
             else
-                if key["left"] then widget.x = widget.x - 1 end
-                if key["right"] then widget.x = widget.x + 1 end
-                if key["up"] then widget.y = widget.y - 1 end
-                if key["down"] then widget.y = widget.y + 1 end
+                if key["left"] and not lastkey["left"] then widget.x = widget.x - 1 end
+                if key["right"] and not lastkey["right"] then widget.x = widget.x + 1 end
+                if key["up"] and not lastkey["up"] then widget.y = widget.y - 1 end
+                if key["down"] and not lastkey["down"] then widget.y = widget.y + 1 end
             end
         end
     end,
@@ -426,11 +444,14 @@ Widgets = {
         if type(ID) == "table" then ID = ID.ID end
         local widget = self.widgets[ID]
         if widget then
+            if next(widget.embedded or {}) then 
+                for k,v in pairs(widget.embedded) do v[1]:del() end 
+            end
             for k,v in pairs(widget) do widget[k] = nil end
             for k,v in pairs(self.priority) do
                 if v > self.priority[ID] then self.priority[k] = v - 1 end
             end
-            for _,t in pairs {self.widgets, self.priority, self.hover, self.moving} do
+            for _,t in pairs {self.widgets, self.priority, self.hover, self.moving, self.selected} do
                 t[ID] = nil
             end
         end
@@ -814,7 +835,7 @@ function Window(x, y, data, charwidth, charheight)
     local function newtext(newdata)  -- parses data and updates maxv_index, maxh_index, linePositions, and datastring
         newdata = newdata or ""
         if type(newdata) == "function" then newdata = newdata() end
-        if type(newdata) == "table" then newdata = table_string(newdata, true, 1) 
+        if type(newdata) == "table" then newdata = table_string(newdata, 1) 
         elseif type(newdata) == "number" then newdata = tostring(newdata) end
         if datastring ~= newdata then
             linePositions = {1}
@@ -944,23 +965,28 @@ function Window(x, y, data, charwidth, charheight)
         -- Update position and draw embedded widgets
         for k,v in pairs(self.embedded) do
             local widget, relx, rely = unpack(v)
-            widget.x = relx + self.x
-            widget.y = rely + self.y
-            widget:draw()
-            if widget.hover then self.hover = true end
+            if widget.ID then
+                widget.x = relx + self.x
+                widget.y = rely + self.y
+                widget:draw()
+                if widget.hover then self.hover = true end
+            else
+                table.remove(self.embedded, k)
+            end
         end
         lastkey = key
     end
 
     -- Find first instance of string in data, starting from current position
     local function search(self, string, start)
-        start = start or linePositions[self.index]
+        start = start or linePositions[self.highlight or 1]
         local pos = datastring:sub(start):find(string)
         if not pos then pos = datastring:sub(1, start):find(string)
         else pos = pos + start - 1 end
         if pos then 
-            self.index = binsearch(linePositions, pos) or 1 
-            self.highlight = self.index
+            self.highlight = binsearch(linePositions, pos)
+            if self.highlight < 1 then self.highlight = 1 end
+            self.index = math.min(maxv_index, self.highlight)
         end
     end
 
@@ -994,78 +1020,165 @@ function Canvas(x, y, width, height)
     
     x, y = x or 0, y or 16
     width, height = width or 100, height or 100
-    local bitmap
-    local background_color = 0xFFFFFFFF
+    last_width, last_height = width, height
+    local background = 0xFFFFFFFF
+    local palette={
+        0x000000FF, 0xFFFFFFFF, 0x00000000, 0x808080FF, 
+        0xC3C3C3FF, 0xB97A57FF, 0x880015FF, 0xED1C24FF, 
+        0xFFAEC9FF, 0xFF7F27FF, 0xFFC90EFF, 0xFFF200FF, 
+        0x22B14CFF, 0xB5E61DFF, 0x00A2E8FF, 0x99D9EAFF, 
+        0x3F48CCFF, 0x7092BEFF, 0xA349A4FF, 0xC8BFE7FF, 
+    }
+
+    local bitmap = {}
+    for x=1, width do
+        bitmap[x] = {}
+        for y=1, height do bitmap[x][y] = background end
+    end
+    local bitmap_history = {}
     local lastkey
     local prevx, prevy
-    local modes = {"pencil", "brush", "line", "box", "circle"}
-    local mode_drawings = {
-        function(x,y) gui.pixel(x+4, y+4, 0x000000FF) end,
-        function(x,y) 
+    local modes = {"pencil", "brush", "line", "box", "circle", "triangle", "fill", "dropper", "undo", "clear"}
+    local mode_drawings = {  -- Draws the button icons
+        function(x,y) gui.pixel(x+4, y+4, 0x000000FF) end,  --pencil
+        function(x,y)  --brush
             gui.line(x+3, y+4, x+5, y+4, 0x000000FF)
             gui.line(x+4, y+3, x+4, y+5, 0x000000FF)
         end,
-        function(x,y) gui.line(x+2, y+6, x+6, y+2, 0x000000FF) end,
-        function(x,y) gui.box(x+2, y+2, x+6, y+6, 0, 0x000000FF) end,
-        function(x,y)
+        function(x,y) gui.line(x+2, y+6, x+6, y+2, 0x000000FF) end,  --line
+        function(x,y) gui.box(x+2, y+2, x+6, y+6, 0, 0x000000FF) end,  --box
+        function(x,y)  --circle
             gui.line(x+2, y+3, x+2, y+5, 0x000000FF)
             gui.line(x+3, y+6, x+5, y+6, 0x000000FF)
             gui.line(x+6, y+5, x+6, y+3, 0x000000FF)
             gui.line(x+5, y+2, x+3, y+2, 0x000000FF)
         end,
-        function(x,y) 
+        function(x,y)  --triangle
+            gui.line(x+2, y+6, x+4, y+1, 0x000000FF)
+            gui.line(x+4, y+1, x+6, y+6, 0x000000FF)
+            gui.line(x+2, y+6, x+6, y+6, 0x000000FF)
+        end,
+        function(x,y)  --fill
+            gui.box(x+2, y+3, x+6, y+6, 0x000000FF)
+            gui.pixel(x+2, y+2, 0x000000FF)
+            gui.pixel(x+6, y+2, 0x000000FF)
+        end,
+        function(x,y)  --dropper
+            gui.line(x+2, y+5, x+5, y+2, 0x000000FF)
+            gui.line(x+3, y+6, x+6, y+3, 0x000000FF)
+            gui.line(x+4, y+2, x+6, y+4, 0x000000FF)
+            gui.pixel(x+2, y+6, 0x000000FF); gui.pixel(x+6, y+2, 0x000000FF); 
+        end,
+        function(x,y)  --undo
+            gui.line(x+2, y+6, x+6, y+6, 0x000000FF)
+            gui.line(x+6, y+6, x+6, y+2, 0x000000FF)
+            gui.line(x+6, y+2, x+2, y+2, 0x000000FF)
+            gui.line(x+3, y+1, x+3, y+3, 0x000000FF)
+        end,
+        function(x,y)  --clear
             gui.line(x+2, y+2, x+2, y+6, 0x000000FF)
             gui.line(x+2, y+6, x+6, y+6, 0x000000FF)
             gui.line(x+6, y+6, x+6, y+2, 0x000000FF)
         end,
     }
-    local mode_click = false
+    local mode_click = false -- used to make the button look nice when clicked
+    local temp_modes = {undo=true, clear=true} -- modes that don't persist
+    local last_mode = nil  -- for returning to after using the dropper
+
+    local shape_drawings = {  -- Draws shapes
+        line = function(self, x1, y1, x2, y2, color, temp) 
+            self:line(x1, y1, x2, y2, color, temp) 
+        end,
+        box = function(self, x1, y1, x2, y2, color, temp) 
+            self:line(x1, y1, x2, y1, color, temp)
+            self:line(x2, y1, x2, y2, color, temp)
+            self:line(x2, y2, x1, y2, color, temp)
+            self:line(x1, y2, x1, y1, color, temp)
+        end,
+        circle = function(self, x1, y1, x2, y2, color, temp)
+            local radius = math.sqrt((x2-x1)^2 + (y2-y1)^2)
+            local pixelcount = math.max(math.floor(radius*10))
+            local ratio = 2*math.pi/pixelcount
+            for angle=1,pixelcount do
+                local x,y = radius*math.cos(angle*ratio)+x2, radius*math.sin(angle*ratio)+y2
+                self:pixel(x, y, color, temp)
+            end
+        end,
+        triangle = function(self, x1, y1, x2, y2, color, temp)
+            local side_length = math.sqrt(4/3*((x2-x1)^2 + (y2-y1)^2))
+            local ratio = math.pi/180
+            local mid_angle = math.atan2(y1-y2,x1-x2)/ratio
+            local tx1, ty1 = x2, y2
+            local tx2, ty2 = tx1 + side_length*math.cos((mid_angle-30)*ratio), ty1 + side_length*math.sin((mid_angle-30)*ratio)
+            local tx3, ty3 = tx1 + side_length*math.cos((mid_angle+30)*ratio), ty1 + side_length*math.sin((mid_angle+30)*ratio)
+            self:line(tx1, ty1, tx2, ty2, color, temp)
+            self:line(tx1, ty1, tx3, ty3, color, temp)
+            self:line(tx2, ty2, tx3, ty3, color, temp)
+        end,
+    }
     local temp_shape  -- determines whether a temporary shape is drawn on the canvas
     local last_bound_state = false  -- whether the cursor was in the boundaries last frame
+    local compress_next = false  -- whether the last history item needs to be compressed
 
 
     local function draw(self)
         local key = Widgets.key
-        if width ~= self.width or height ~= self.height or bitmap ~= self.bitmap then
-            self.bitmap = {}
-            for i=1,self.width do table.insert(self.bitmap, {}) end
-            width = self.width
-            height = self.height
-            bitmap = self.bitmap
+        if last_width ~= self.width or last_height ~= self.height then
+            self:add_copy()
+            self:resize()
+            self:compress_copy()
+            last_width, last_height = self.width, self.height
         end
-        local x1, y1, x2, y2 = self.x-1, self.y-1, self.x+self.width, self.y+self.height
+
+        local x1, y1, x2, y2 = self.x-1, self.y-1, self.x+self.width, self.y+self.height  -- box around editable region
+        background = self.background
+        palette = self.palette
         local color = self.color
         local mode = self.mode
+        local modeX, modeY = x1+1, y1-18  -- Mode options coordinates
+        local palX, palY = x1, y1-8  -- Palette options coordinates
 
-        -- Main Box
-        gui.box(x1, y1, x2, y2, background_color, 0x000000FF)
 
-        -- Mode options
-        local offset = 0
-        for i=1,#modes+1 do
-            gui.box(x1+offset, y1-16, x1+offset+8, y1-8, 0xFFFFFFFF, 0x000000FF)
-            mode_drawings[i](x1+offset, y1-16)
-            offset = offset + 10
-        end
-        if key["leftclick"] and cursorbounds(x1, y1-16, x1+10*#modes+8, y1-8) then
-            local mode_index = math.floor((key["xmouse"] - x1)/10)+1
-            if not lastkey["leftclick"] then
-                mode_click = mode_index
-                if mode_index <= #modes then self.mode = modes[mode_index]
-                else self:clear() end
+        if self.show then
+            gui.box(x1, y1, x2, y2, 0x00000000, 0x000000FF)
+
+            -- Mode options
+            local offset = 0
+            for i=1,#modes do
+                gui.box(modeX+offset, modeY, modeX+offset+8, modeY+8, 0xFFFFFFFF, 0x000000FF)
+                mode_drawings[i](modeX+offset, modeY)
+                offset = offset + 10
             end
-            if mode_click == mode_index then 
-                gui.box(x1+mode_index*10-10, y1-16, x1+8+mode_index*10-10, y1-8, "#00000040")
+            if key["leftclick"] and cursorbounds(modeX, modeY, modeX+10*#modes-2, modeY+8) then
+                local mode_index = math.floor((key["xmouse"] - modeX)/10)+1
+                if not lastkey["leftclick"] then
+                    mode_click = mode_index
+                    mode = modes[mode_index]
+                    if mode == "dropper" then last_mode = self.mode
+                    elseif mode == "undo" then self:undo()
+                    elseif mode == "clear" then self:add_copy(); self:clear(); self:compress_copy() end
+                    if not temp_modes[mode] then self.mode = mode end  -- mode will update mode next frame
+                end
+                if mode_click == mode_index then 
+                    gui.box(modeX+mode_index*10-10, modeY, modeX+8+mode_index*10-10, modeY+8, "#00000040")
+                else mode_click = false 
+                end
             end
-        else mode_click = false
-        end
+            for k,v in pairs(modes) do 
+                if v == self.mode then gui.box(modeX+10*k-10, modeY, modeX+10*k-2, modeY+8, 0, 0x808080FF) end 
+            end
 
-        -- Palette
-        for i=1,#self.palette do
-            gui.box(x1+5*i-5, y1-6, x1+5*i-1, y1-2, self.palette[i], self.palette[i])
-        end
-        if key["leftclick"] and not lastkey["leftclick"] and cursorbounds(x1, y1-6, x1+5*#self.palette, y1-2) then
-            self.color = self.palette[math.floor((key["xmouse"] - x1)/5) + 1]
+            -- Palette
+            for i=1,#palette do
+                gui.box(palX+5*i-4, palY+1, palX+5*i, palY+5, palette[i], palette[i])
+            end
+            if key["leftclick"] and not lastkey["leftclick"] and cursorbounds(palX+1, palY, palX+5*#palette, palY+6) then
+                self.color = palette[math.floor((key["xmouse"] - (palX+1))/5) + 1]
+            end
+            for k,v in pairs(palette) do
+                if v == self.color then gui.box(palX+5*k-5, palY, palX+5*k, palY+6, 0, 0xA0A0A0FF) end
+            end
+
         end
 
         -- Draws the bitmap to the screen
@@ -1076,7 +1189,7 @@ function Canvas(x, y, width, height)
         end
 
         -- Drawing Area
-        if cursorbounds(x1+1, y1+1, x2-1, y2-1) or last_bound_state then
+        if cursorbounds(x1+1, y1+1, x2-1, y2-1) or last_bound_state or temp_shape then
             gui.pixel(key["xmouse"], key["ymouse"], color)
             if mode == "brush" then 
                 gui.line(key["xmouse"]-1, key["ymouse"], key["xmouse"]+1, key["ymouse"], color)
@@ -1085,23 +1198,14 @@ function Canvas(x, y, width, height)
             local relx = key["xmouse"]-x1
             local rely = key["ymouse"]-y1
             if prevx == nil or prevy == nil then prevx, prevy = relx, rely end
-            if temp_shape then
-                if temp_shape == "line" then gui.line(prevx+x1, prevy+y1, relx+x1, rely+y1, color)
-                elseif temp_shape == "box" then gui.box(prevx+x1, prevy+y1, relx+x1, rely+y1, 0x00000000, color)
-                elseif temp_shape == "circle" then
-                    local radius = math.sqrt((relx-prevx)^2 + (rely-prevy)^2)
-                    local pixelcount = math.max(math.floor(radius*10))
-                    local ratio = 2*math.pi/pixelcount
-                    for angle=1,pixelcount do
-                        local x,y = radius*math.cos(angle*ratio)+relx, radius*math.sin(angle*ratio)+rely
-                        if x >= 1 and x <= self.width and y >= 1 and y <= self.height then
-                            gui.pixel(x+x1, y+y1, color)
-                        end
-                    end
-                end
+            if shape_drawings[temp_shape] then
+                shape_drawings[temp_shape](self, prevx, prevy, relx, rely, color, true)
             end
             if key["leftclick"] then
-                if not lastkey["leftclick"] then prevx, prevy = relx, rely end
+                if not lastkey["leftclick"] then 
+                    prevx, prevy = relx, rely
+                    if not temp_modes[mode] and mode ~= "dropper" and mode ~= "fill" then self:add_copy() end
+                end
                 if mode == "pencil" then
                     self:line(prevx, prevy, relx, rely, color)
                     prevx, prevy = relx, rely
@@ -1112,82 +1216,323 @@ function Canvas(x, y, width, height)
                     self:line(prevx, prevy-1, relx, rely-1, color)
                     self:line(prevx, prevy+1, relx, rely+1, color)
                     prevx, prevy = relx, rely
+                elseif mode == "fill" then
+                    if not lastkey["leftclick"] then 
+                        self:add_copy()
+                        self:fill(relx, rely, color)
+                        self:compress_copy()
+                    end
+                elseif mode == "dropper" then
+                    if not lastkey["leftclick"] then 
+                        self.color = bitmap[relx][rely]
+                        self.mode = last_mode
+                    end
                 else temp_shape = mode
                 end
-            elseif temp_shape then
-                if temp_shape == "line" then
-                    self:line(prevx, prevy, relx, rely, color)
-                elseif temp_shape == "box" then
-                    self:line(prevx, prevy, relx, prevy, color)
-                    self:line(relx, prevy, relx, rely, color)
-                    self:line(relx, rely, prevx, rely, color)
-                    self:line(prevx, rely, prevx, prevy, color)
-                elseif temp_shape == "circle" then
-                    local radius = math.sqrt((relx-prevx)^2 + (rely-prevy)^2)
-                    local pixelcount = math.max(math.floor(radius*10))
-                    local ratio = 2*math.pi/pixelcount
-                    for angle=1,pixelcount do
-                        local x,y = radius*math.cos(angle*ratio)+relx, radius*math.sin(angle*ratio)+rely
-                        if x >= 1 and x <= self.width and y >= 1 and y <= self.height then
-                            self.bitmap[math.floor(x+0.5)][math.floor(y+0.5)] = color
-                        end
-                    end
-                end
+            elseif shape_drawings[temp_shape] then
+                shape_drawings[temp_shape](self, prevx, prevy, relx, rely, color)
                 temp_shape = nil
             end
         end
 
         last_bound_state = cursorbounds(x1+1, y1+1, x2-1, y2-1)  -- check previous frame
-        self.hover = cursorbounds(x1, y1, x2, y2) or cursorbounds(x1, y1-6, x1+5*#self.palette, y1) or 
-            cursorbounds(x1, y1-16, x1+10*(#modes+1)-2, y1)
+        self.hover = cursorbounds(x1, y1, x2, y2)
+            or cursorbounds(modeX, modeY, modeX+10*#modes-2, modeY+10)
+            or cursorbounds(palX, palY, palX+5*#palette+1, palY+6)
         if not key["leftclick"] then 
             temp_shape, prevx, prevy = nil, nil, nil
+            if compress_next then self:compress_copy() end
         elseif mode == "pencil" or mode == "brush" then  -- track cursor when out of bounds for better entry
             prevx, prevy = key["xmouse"]-x1, key["ymouse"]-y1
         end
         lastkey = key
     end
 
-    local function line(self, x1, y1, x2, y2, color)
-        if color == background_color then color = nil end
+
+    local function pixel(self, x, y, color, temp)
+        if x >= 1 and x <= self.width and y > 1 and y <= self.width then
+            if temp then gui.pixel(x+self.x-1, y+self.y-1, color)
+            else self.bitmap[math.floor(x+0.5)][math.floor(y+0.5)] = color end
+        end
+    end
+
+
+    local function line(self, x1, y1, x2, y2, color, temp)
         local bitmap = self.bitmap
-        x1 = math.min(self.width, math.max(1, x1))
-        x2 = math.min(self.width, math.max(1, x2))
-        y1 = math.min(self.height, math.max(1, y1))
-        y2 = math.min(self.height, math.max(1, y2))
+        local width, height = self.width, self.height
+        
+        local function bound(value, max)
+            return math.floor(0.5 + math.min(max, math.max(1, value)))
+        end
+
         local xdir, ydir = 1,1
         if x2 < x1 then xdir = -1 end
         if y2 < y1 then ydir = -1 end
         if x2 == x1 then
-            for i=y1,y2,ydir do
-                bitmap[x2][i] = color
+            x2, y1, y2 = math.floor(x2+0.5), bound(y1, height), bound(y2, height)
+            if x2 >= 1 and x2 <= width then
+                for i=y1,y2,ydir do
+                    if temp then gui.pixel(x2+self.x-1, i+self.y-1, color)
+                    else bitmap[x2][i] = color end
+                end
             end
         elseif y2 == y1 then
-            for i=x1,x2,xdir do
-                bitmap[i][y2] = color
+            y2, x1, x2 = math.floor(y2+0.5), bound(x1, width), bound(x2, width)
+            if y2 >= 1 and y2 <= height then
+                for i=x1,x2,xdir do 
+                    if temp then gui.pixel(i+self.x-1, y2+self.y-1, color)
+                    else bitmap[i][y2] = color end
+                end
             end
         else
+            x1, y1, x2, y2 = math.floor(0.5+x1), math.floor(0.5+y1), math.floor(0.5+x2), math.floor(0.5+y2)
             local slope1 = (y2-y1)/(x2-x1)
             local slope2 = (x2-x1)/(y2-y1)
-            for i=0, x2-x1, xdir do
-                bitmap[x1+i][y1+math.floor(i*slope1+0.5)] = color
+            for i=0, x2-x1, xdir do 
+                local x, y = x1+i, y1+math.floor(i*slope1+0.5)
+                if x >=1 and x <= width and y >= 1 and y <= height then
+                    if temp then gui.pixel(x+self.x-1, y+self.y-1, color)
+                    else bitmap[x][y] = color end
+                end
             end
             for i=0, y2-y1, ydir do
-                bitmap[x1+math.floor(i*slope2+0.5)][y1+i] = color
+                local x, y = x1+math.floor(i*slope2+0.5), y1+i
+                if x >=1 and x <= width and y >= 1 and y <= height then
+                    if temp then gui.pixel(x+self.x-1, y+self.y-1, color)
+                    else bitmap[x][y] = color end
+                end
             end
         end
     end
 
-    local function clear(self)
-        for k,v in pairs(self.bitmap) do 
-            self.bitmap[k] = {}
+
+    local function fill(self, x, y, color)
+        local bitmap = self.bitmap
+        local init_color = bitmap[x][y]
+        if color == init_color then return end
+        local width, height = self.width, self.height
+        bitmap[x][y] = color
+        local currentlayer = {{x, y}}
+        local checked = {}
+        for i=1,width do table.insert(checked, {}) end
+        
+        local function check(x, y, nextlayer)
+            if not checked[x][y] then
+                checked[x][y] = true
+                if bitmap[x][y] == init_color then 
+                    bitmap[x][y] = color
+                    table.insert(nextlayer, {x, y})
+                end
+            end
+        end
+
+        while next(currentlayer) do
+            nextlayer = {}
+            for _, coords in pairs(currentlayer) do
+                local x, y = unpack(coords)
+                if x < width then check(x+1, y, nextlayer) end
+                if y > 1 then check(x, y-1, nextlayer) end
+                if x > 1 then check(x-1, y, nextlayer) end
+                if y < height then check(x, y+1, nextlayer) end
+            end
+            currentlayer = nextlayer
         end
     end
 
+
+    local function add_copy(self)
+        local newcopy = {}
+        for x=1, last_width do newcopy[x] = {} end
+        for x,column in pairs(self.bitmap) do -- make a copy of the bitmap
+            for y,color in pairs(column) do newcopy[x][y] = color end
+        end
+        table.insert(bitmap_history, {newcopy, last_width, last_height})
+        compress_next = true
+    end
+
+
+    local function compress_copy(self)
+        local mismatch = false
+        local bitmap = self.bitmap
+        local recent, width, height = unpack(bitmap_history[#bitmap_history] or {})
+        if width ~= self.width or height ~= self.height then mismatch = true end
+        width, height = width or self.width, height or self.height
+
+        local lastcolor = false
+        local bytes = {}
+        local byte_str = ""
+        local lengths = {}
+        local palette, psize = {unchanged=255}, 0
+        for x=1, width do
+            local column = bitmap[x] or {}
+            for y=1, height do
+                local color = recent[x][y]
+                if color ~= column[y] then 
+                    mismatch = true
+                    if not palette[color] then 
+                        psize = psize + 1
+                        palette[color] = psize
+                        color = psize
+                    else
+                        color = palette[color]
+                    end
+                else color = 255 end
+                if color ~= lastcolor then 
+                    table.insert(bytes, color)
+                    table.insert(lengths, 1)
+                    lastcolor = color
+                else lengths[#lengths] = lengths[#lengths] + 1 
+                end
+                if #bytes >= 4096 then byte_str = byte_str..string.char(unpack(bytes)); bytes = {} end
+            end
+        end
+        byte_str = byte_str..string.char(unpack(bytes))
+        local palette_transpose = {}
+        for k,v in pairs(palette) do palette_transpose[v] = k end
+        table.remove(bitmap_history)
+        table.insert(bitmap_history, {byte_str, lengths, palette_transpose, width, height})
+        if mismatch == true then
+            if #bitmap_history > 10 then table.remove(bitmap_history, 1) end
+        else
+            table.remove(bitmap_history, #bitmap_history)
+        end
+        compress_next = false
+    end
+
+
+    local function undo(self)
+        local bitmap = self.bitmap
+        local copy = table.remove(bitmap_history)
+        if copy then
+            local bytes, lengths, palette, width, height = unpack(copy)
+            if width ~= self.width or height ~= self.height then 
+                self.width, self.height = width, height
+                self:resize(width, height)
+            end
+            local x,y = 1,1
+            for pos=1, bytes:len() do
+                local color, length = palette[bytes:byte(pos)], lengths[pos]
+                for i=1,length do
+                    if color ~= "unchanged" then bitmap[x][y] = color end
+                    if y == height then y = 1; x = x + 1
+                    else y = y + 1 end
+                end
+            end
+        end
+    end
+
+    -- Resizes canvas based on self.width and self.height, clears unused regions and fills new regions
+    local function resize(self)
+        local bitmap = self.bitmap
+        for x=1, math.max(last_width, self.width) do
+            if x <= self.width then 
+                bitmap[x] = bitmap[x] or {}
+                for y=1, math.max(last_height, self.height) do
+                    if y <= self.height then bitmap[x][y] = bitmap[x][y] or background
+                    else bitmap[x][y] = nil end
+                end
+            else 
+                bitmap[x] = nil
+            end
+        end
+        last_width, last_height = self.width, self.height
+    end
+
+
+    local function clear(self)
+        for x=1, #self.bitmap do bitmap[x] = nil end
+        for x=1, self.width do
+            self.bitmap[x] = {}
+            for y=1, self.height do
+                table.insert(self.bitmap[x], background)
+            end
+        end
+    end
+
+    -- Exports to a .bmp file
+    local function export(self, filepath)
+        if not filepath:find("%.%w+$") then filepath = filepath .. ".bmp" end
+        local file = io.open(filepath, "wb")
+        local width, height = self.width, self.height
+        local padding = width % 4
+        local payload_size = (width*3+padding)*height
+        local file_size = payload_size + 0x36
+        local data = {}
+        for i=1, 0x36 do data[i] = 0 end
+        local magic_bytes = {[0x1]=0x42, [0x2]=0x4D, [0xB]=0x36, [0xF]=0x28, [0x1B]=0x1, [0x1D]=0x18}
+        for k,v in pairs(magic_bytes) do data[k] = v end
+        local bitmap = self.bitmap
+
+        local function store_bytes(number, pos)
+            while number > 0 do
+                data[pos] = number % 256
+                number = bit.rshift(number, 8)
+                pos = pos + 1
+            end
+        end
+
+        store_bytes(file_size, 3)
+        store_bytes(width, 0x13)
+        store_bytes(height, 0x17)
+        store_bytes(payload_size, 0x23)
+        file:write(string.char(unpack(data)))
+        
+        for y=height, 1, -1 do
+            local data = {}
+            for x=1, width do
+                local color = bitmap[x][y] or 0xFFFFFFFF
+                color = bit.rshift(color, 8)
+                for i=1,3 do
+                    data[3*(x-1)+i] = color % 256
+                    color = bit.rshift(color, 8)
+                end
+            end
+            for i=1,padding do table.insert(data, 0) end
+            file:write(string.char(unpack(data)))
+        end
+        file:close()
+    end
+
+    -- Imports from a .bmp file
+    local function import(self, filepath)
+        self:add_copy()
+        if not filepath:find("%.%w+$") then filepath = filepath .. ".bmp" end
+        local file = io.open(filepath, "rb")
+        local header = file:read(0x36)
+        local bitmap = self.bitmap
+        
+        local function to_int(substring)
+            local out = 0
+            local bytearray = {substring:byte(1, substring:len())}
+            for i=#bytearray,1,-1 do
+                out = bit.lshift(out, 8)
+                out = out + bytearray[i]
+            end
+            return out
+        end
+
+        local width = to_int(header:sub(0x13, 0x16))
+        local height = to_int(header:sub(0x17, 0x1B))
+        local padding = width % 4
+        self.width = width
+        self.height = height
+        self:resize()
+        
+        for y=height, 1, -1 do
+            for x=1, width do
+                bitmap[x][y] = bit.lshift(to_int(file:read(3)), 8) + 0xFF
+            end
+            file:seek("cur", padding)
+        end
+        file:close()
+        self:compress_copy()
+    end
+
+
     return Widgets:new {
-        x=x, y=y, width=width, height=height, bitmap={}, mode="pencil",
-        palette={0x000000FF, 0xFFFFFFFF, 0x808080FF, 0xED1C24FF, 0xFF7F27FF, 
-            0xFFF200FF, 0x22B14CFF, 0x00A2E8FF, 0x3F48CCFF, 0xA349A4FF}, color=0x000000FF,
-        line=line, clear=clear, class="Canvas", hover=false, draw=draw
+        x=x, y=y, width=width, height=height, bitmap=bitmap, mode="pencil", background=background,
+        palette=palette, color=palette[1], show=true, pixel=pixel, line=line, fill=fill, 
+        add_copy=add_copy, compress_copy=compress_copy, undo=undo, resize=resize, clear=clear, 
+        class="Canvas", hover=false, draw=draw, export=export, import=import,
     }
 end

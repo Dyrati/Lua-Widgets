@@ -1,14 +1,14 @@
 # Lua-Widgets
 **Widgets for embedding user input fields**
 
-Need real-time input for your lua script?  Look no further!  This is an easy to use module for grabbing user input.  Simply download the repository, open it, and move `Widgets.lua` into the same folder as your lua script.  Write `require(Widgets)` at the top of your script, and write `Widgets:draw()` in the main loop.
+Need real-time input for your lua script?  Look no further!  This is an easy to use module for grabbing user input.  Simply download the repository, open it, and move `Widgets.lua` into the same folder as your lua script.  Write `require "Widgets"` at the top of your script, and write `Widgets:draw()` in the main loop.
 
 To create widgets, set a variable equal to the type of widget you want, followed by parentheses.  
 Example: `inputfield = InputBox()` This creates an input box named inputfield that you can click on and write in.  Creation only needs to happen once.  Any widgets created in this way will automatically be drawn to the screen every frame.  You can delete them by calling their `del` method: `inputfield:del()`.  
 
 Example Usage:
 ```
-require("Widgets")
+require "Widgets"
 
 b1 = Button(20, 20, "button 1")          -- creates a button widget
 b1.func = function() print("wakawaka") end   -- assigns a function to b1 that runs when clicked

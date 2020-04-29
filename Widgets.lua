@@ -1111,6 +1111,7 @@ function Canvas(x, y, width, height)
     }
     local temp_shape  -- determines whether a temporary shape is drawn on the canvas
     local last_bound_state = false  -- whether the cursor was in the boundaries last frame
+    local last_edit = false  -- whether an edit was made last frame
     local compress_next = false  -- whether the last history item needs to be compressed
 
 
@@ -1195,18 +1196,21 @@ function Canvas(x, y, width, height)
             if key["leftclick"] then
                 if not lastkey["leftclick"] then 
                     prevx, prevy = relx, rely
-                    if not temp_modes[mode] and mode ~= "dropper" and mode ~= "fill" then self:add_copy() end
                 end
                 if mode == "pencil" then
+                    if not last_edit then self:add_copy() end
                     self:line(prevx, prevy, relx, rely, color)
                     prevx, prevy = relx, rely
+                    last_edit = true
                 elseif mode == "brush" then
+                    if not last_edit then self:add_copy() end
                     self:line(prevx, prevy, relx, rely, color)
                     self:line(prevx-1, prevy, relx-1, rely, color)
                     self:line(prevx+1, prevy, relx+1, rely, color)
                     self:line(prevx, prevy-1, relx, rely-1, color)
                     self:line(prevx, prevy+1, relx, rely+1, color)
                     prevx, prevy = relx, rely
+                    last_edit = true
                 elseif mode == "fill" then
                     if not lastkey["leftclick"] then 
                         self:add_copy()
@@ -1221,8 +1225,10 @@ function Canvas(x, y, width, height)
                 else temp_shape = mode
                 end
             elseif shape_drawings[temp_shape] then
+                self:add_copy()
                 shape_drawings[temp_shape](self, prevx, prevy, relx, rely, color)
                 temp_shape = nil
+                self:compress_copy()
             end
         end
 
@@ -1231,7 +1237,7 @@ function Canvas(x, y, width, height)
             or cursorbounds(modeX, modeY, modeX+10*#modes-2, modeY+10)
             or cursorbounds(palX, palY, palX+5*#palette+1, palY+6)
         if not key["leftclick"] then 
-            temp_shape, prevx, prevy = nil, nil, nil
+            temp_shape, prevx, prevyl, last_edit = nil, nil, nil, nil
             if compress_next then self:compress_copy() end
         elseif mode == "pencil" or mode == "brush" then  -- track cursor when out of bounds for better entry
             prevx, prevy = key["xmouse"]-x1, key["ymouse"]-y1
@@ -1321,10 +1327,11 @@ function Canvas(x, y, width, height)
         local copy, width, height = unpack(bitmap_history[#bitmap_history] or {})
         if width ~= self.width or height ~= self.height then mismatch = true end
 
-        local lastcolor = false
+        local lastcolor =false
         local bytes = {}
-        local byte_str = ""
         local lengths = {}
+        local byte_str = ""
+        local len_str = ""
         local palette, ptranspose = {[255]="unchanged"}, {["unchanged"]=255}
         for x=1, width do
             local column = bitmap[x] or {}
@@ -1338,18 +1345,24 @@ function Canvas(x, y, width, height)
                     end
                     color = ptranspose[color]
                 else color = 255 end
-                if color ~= lastcolor then 
+                if color ~= lastcolor or #lengths == 0 then 
                     table.insert(bytes, color)
-                    table.insert(lengths, 1)
+                    table.insert(lengths, 0)
                     lastcolor = color
-                else lengths[#lengths] = lengths[#lengths] + 1 
+                else 
+                    lengths[#lengths] = lengths[#lengths] + 1 
+                    if lengths[#lengths] == 255 then lastcolor = false end
                 end
-                if #bytes >= 4096 then byte_str = byte_str..string.char(unpack(bytes)); bytes = {} end
+                if #bytes >= 4096 then 
+                    byte_str = byte_str..string.char(unpack(bytes)); bytes = {} 
+                    len_str = len_str..string.char(unpack(lengths)); lengths = {}
+                end
             end
         end
         byte_str = byte_str..string.char(unpack(bytes))
+        len_str = len_str..string.char(unpack(lengths))
         table.remove(bitmap_history)
-        table.insert(bitmap_history, {byte_str, lengths, palette, width, height})
+        table.insert(bitmap_history, {byte_str, len_str, palette, width, height})
         if mismatch == true then
             if #bitmap_history > 10 then table.remove(bitmap_history, 1) end
         else
@@ -1370,7 +1383,7 @@ function Canvas(x, y, width, height)
             end
             local x,y = 1,1
             for pos=1, bytes:len() do
-                local color, length = palette[bytes:byte(pos)], lengths[pos]
+                local color, length = palette[bytes:byte(pos)], lengths:byte(pos) + 1
                 for i=1,length do
                     if color ~= "unchanged" then bitmap[x][y] = color end
                     if y == height then y = 1; x = x + 1

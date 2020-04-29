@@ -1211,7 +1211,7 @@ function Canvas(x, y, width, height)
                     if not lastkey["leftclick"] then 
                         self:add_copy()
                         self:fill(relx, rely, color)
-                        self:compress_copy2()
+                        self:compress_copy()
                     end
                 elseif mode == "dropper" then
                     if not lastkey["leftclick"] then 

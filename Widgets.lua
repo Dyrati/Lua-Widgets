@@ -481,7 +481,7 @@ function InputBox(x, y, charlimit, text, flags)
 
     local function draw(self)
 
-        local key = Widgets.key
+        local key, lastkey = Widgets.key, Widgets.lastkey
         local x, y, charlimit = self.x, self.y, self.charlimit
         if charlimit < 0 then charlimit = self.text:len() + 1 end
         if bit.band(self.flags,1) ~= 0 and self.event then self.text = "" end
@@ -584,7 +584,6 @@ function InputBox(x, y, charlimit, text, flags)
                 end
             end
         end
-        lastkey = key
     end
 
     return Widgets:new {
@@ -624,9 +623,8 @@ end
 function CheckBox(x,y)
     x, y = x or 0, y or 0
     
-    local lastkey = {}
     local function draw(self)
-        local key = Widgets.key
+        local key, lastkey = Widgets.key, Widgets.lastkey
         local x, y = self.x, self.y
         self.event = false
         self.hover = cursorbounds(x, y, x+4, y+4)
@@ -647,7 +645,6 @@ function CheckBox(x,y)
                 gui.line(x+2, y+4, x+4, y-1, self.colors[1])
             end
         end
-        lastkey = key
     end
 
     return Widgets:new {
@@ -662,10 +659,9 @@ end
 function Button(x, y, text, func)
     x, y = x or 0, y or 0
     text = text or "click"
-    local lastkey
 
     local function draw(self)
-        local key = Widgets.key
+        local key, lastkey = Widgets.key, Widgets.lastkey
         local tc1, tc2, bc1, bc2 = unpack(self.colors_unclicked)
         local tc3, tc4, bc3, bc4 = unpack(self.colors_clicked)
         local x1, y1, x2, y2 = self.x, self.y, self.x+4*self.text:len()+2, self.y+8
@@ -687,7 +683,6 @@ function Button(x, y, text, func)
             if self.state then self.event = true end
             self.state = false
         end
-        lastkey = key
     end
 
     return Widgets:new {
@@ -705,7 +700,7 @@ function Radio(x, y, options)
     options = options or {""}
 
     local function draw(self)
-        local key = Widgets.key
+        local key, lastkey = Widgets.key, Widgets.lastkey
         local x, y = self.x, self.y
         local tc1, tc2 = unpack(self.colors_txt)
         local bc1, bc2, bc3, bc4 = unpack(self.colors_rad)
@@ -725,7 +720,7 @@ function Radio(x, y, options)
             gui.line(x+4, y+2, x+4, y+4, bc)
             gui.text(x+8, y, v, tc1 , tc2)
             maxlen = math.max(maxlen, v:len())
-            if key["leftclick"] and cursorbounds(x, y, x+4, y+7) then
+            if key["leftclick"] and not lastkey["leftclick"] and cursorbounds(x, y, x+4, y+7) then
                 if k ~= self.index then 
                     self.event = true
                     self.index = k
@@ -825,7 +820,6 @@ function Window(x, y, data, charwidth, charheight)
     data = data or ""
     charwidth = charwidth or 20
     charheight = charheight or 10
-    local lastkey = {}
     local clickstate, clickhold = false, 0
     local maxh_index, maxv_index
     local linePositions
@@ -853,7 +847,7 @@ function Window(x, y, data, charwidth, charheight)
     newtext(data)
 
     local function draw(self)
-        local key = Widgets.key
+        local key, lastkey = Widgets.key, Widgets.lastkey
         if not key["leftclick"] then
             clickstate, clickhold = false, 0
             self.drag_h = false
@@ -974,7 +968,6 @@ function Window(x, y, data, charwidth, charheight)
                 table.remove(self.embedded, k)
             end
         end
-        lastkey = key
     end
 
     -- Find first instance of string in data, starting from current position
@@ -1122,12 +1115,11 @@ function Canvas(x, y, width, height)
 
 
     local function draw(self)
-        local key = Widgets.key
+        local key, lastkey = Widgets.key, Widgets.lastkey
         if last_width ~= self.width or last_height ~= self.height then
             self:add_copy()
             self:resize()
             self:compress_copy()
-            last_width, last_height = self.width, self.height
         end
 
         local x1, y1, x2, y2 = self.x-1, self.y-1, self.x+self.width, self.y+self.height  -- box around editable region
@@ -1138,7 +1130,7 @@ function Canvas(x, y, width, height)
         local modeX, modeY = x1+1, y1-18  -- Mode options coordinates
         local palX, palY = x1, y1-8  -- Palette options coordinates
 
-
+        -- Draws the interface
         if self.show then
             gui.box(x1, y1, x2, y2, 0x00000000, 0x000000FF)
 
@@ -1176,9 +1168,8 @@ function Canvas(x, y, width, height)
                 self.color = palette[math.floor((key["xmouse"] - (palX+1))/5) + 1]
             end
             for k,v in pairs(palette) do
-                if v == self.color then gui.box(palX+5*k-5, palY, palX+5*k, palY+6, 0, 0xA0A0A0FF) end
+                if v == self.color then gui.box(palX+5*k-5, palY, palX+5*k+1, palY+6, 0, 0xA0A0A0FF) end
             end
-
         end
 
         -- Draws the bitmap to the screen
@@ -1188,7 +1179,7 @@ function Canvas(x, y, width, height)
             end
         end
 
-        -- Drawing Area
+        -- Drawing Area Logic
         if cursorbounds(x1+1, y1+1, x2-1, y2-1) or last_bound_state or temp_shape then
             gui.pixel(key["xmouse"], key["ymouse"], color)
             if mode == "brush" then 
@@ -1220,7 +1211,7 @@ function Canvas(x, y, width, height)
                     if not lastkey["leftclick"] then 
                         self:add_copy()
                         self:fill(relx, rely, color)
-                        self:compress_copy()
+                        self:compress_copy2()
                     end
                 elseif mode == "dropper" then
                     if not lastkey["leftclick"] then 
@@ -1245,7 +1236,6 @@ function Canvas(x, y, width, height)
         elseif mode == "pencil" or mode == "brush" then  -- track cursor when out of bounds for better entry
             prevx, prevy = key["xmouse"]-x1, key["ymouse"]-y1
         end
-        lastkey = key
     end
 
 
@@ -1323,32 +1313,30 @@ function Canvas(x, y, width, height)
         compress_next = true
     end
 
+
     -- Utilizes color list, difference comparison, and run-length-encoding
     local function compress_copy(self)
         local mismatch = false
         local bitmap = self.bitmap
-        local recent, width, height = unpack(bitmap_history[#bitmap_history] or {})
+        local copy, width, height = unpack(bitmap_history[#bitmap_history] or {})
         if width ~= self.width or height ~= self.height then mismatch = true end
-        width, height = width or self.width, height or self.height
 
         local lastcolor = false
         local bytes = {}
         local byte_str = ""
         local lengths = {}
-        local palette, psize = {unchanged=255}, 0
+        local palette, ptranspose = {[255]="unchanged"}, {["unchanged"]=255}
         for x=1, width do
             local column = bitmap[x] or {}
             for y=1, height do
-                local color = recent[x][y]
+                local color = copy[x][y]
                 if color ~= column[y] then 
                     mismatch = true
-                    if not palette[color] then 
-                        psize = psize + 1
-                        palette[color] = psize
-                        color = psize
-                    else
-                        color = palette[color]
+                    if not ptranspose[color] then 
+                        table.insert(palette, color)
+                        ptranspose[color] = #palette
                     end
+                    color = ptranspose[color]
                 else color = 255 end
                 if color ~= lastcolor then 
                     table.insert(bytes, color)
@@ -1360,10 +1348,8 @@ function Canvas(x, y, width, height)
             end
         end
         byte_str = byte_str..string.char(unpack(bytes))
-        local palette_transpose = {}
-        for k,v in pairs(palette) do palette_transpose[v] = k end
         table.remove(bitmap_history)
-        table.insert(bitmap_history, {byte_str, lengths, palette_transpose, width, height})
+        table.insert(bitmap_history, {byte_str, lengths, palette, width, height})
         if mismatch == true then
             if #bitmap_history > 10 then table.remove(bitmap_history, 1) end
         else
@@ -1394,6 +1380,7 @@ function Canvas(x, y, width, height)
         end
     end
 
+
     -- Resizes canvas based on self.width and self.height, clears unused regions and fills new regions
     local function resize(self)
         local bitmap = self.bitmap
@@ -1421,6 +1408,7 @@ function Canvas(x, y, width, height)
             end
         end
     end
+
 
     -- Exports to a .bmp file
     local function export(self, filepath)
@@ -1466,11 +1454,13 @@ function Canvas(x, y, width, height)
         file:close()
     end
 
+
     -- Imports from a .bmp file
     local function import(self, filepath)
         self:add_copy()
         if not filepath:find("%.%w+$") then filepath = filepath .. ".bmp" end
         local file = io.open(filepath, "rb")
+        if not file then print("Error: Could not load file"); return end
         local header = file:read(0x36)
         local bitmap = self.bitmap
         
@@ -1484,6 +1474,11 @@ function Canvas(x, y, width, height)
             return out
         end
 
+        if to_int(header:sub(1, 2)) ~= 0x4D42 then 
+            print("Error: Imported file is not a .bmp image")
+            file:close()
+            return 
+        end
         local width = to_int(header:sub(0x13, 0x16))
         local height = to_int(header:sub(0x17, 0x1B))
         local padding = width % 4

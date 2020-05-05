@@ -1322,17 +1322,16 @@ function Canvas(x, y, width, height)
 
     -- Utilizes color list, difference comparison, and run-length-encoding
     local function compress_copy(self)
+
         local mismatch = false
         local bitmap = self.bitmap
         local copy, width, height = unpack(bitmap_history[#bitmap_history] or {})
         if width ~= self.width or height ~= self.height then mismatch = true end
 
-        local lastcolor =false
-        local bytes = {}
+        local lastcolor = nil
+        local colors = {}
         local lengths = {}
-        local byte_str = ""
-        local len_str = ""
-        local palette, ptranspose = {[255]="unchanged"}, {["unchanged"]=255}
+        local palette, ptranspose = {[0]="unchanged"}, {["unchanged"]=0}
         for x=1, width do
             local column = bitmap[x] or {}
             for y=1, height do
@@ -1344,25 +1343,40 @@ function Canvas(x, y, width, height)
                         ptranspose[color] = #palette
                     end
                     color = ptranspose[color]
-                else color = 255 end
-                if color ~= lastcolor or #lengths == 0 then 
-                    table.insert(bytes, color)
+                else color = 0 end
+                if color ~= lastcolor then 
+                    table.insert(colors, color)
                     table.insert(lengths, 0)
                     lastcolor = color
                 else 
-                    lengths[#lengths] = lengths[#lengths] + 1 
-                    if lengths[#lengths] == 255 then lastcolor = false end
-                end
-                if #bytes >= 4096 then 
-                    byte_str = byte_str..string.char(unpack(bytes)); bytes = {} 
-                    len_str = len_str..string.char(unpack(lengths)); lengths = {}
+                    lengths[#lengths] = lengths[#lengths] + 1
                 end
             end
         end
-        byte_str = byte_str..string.char(unpack(bytes))
-        len_str = len_str..string.char(unpack(lengths))
+
+        -- splits a number into groups of 7 bits and a continuation flag
+        local function encode_bits(target, number)
+            table.insert(target, bit.band(number, 0x7F))
+            number = bit.rshift(number, 7)
+            local insert_pos = #target
+            while number > 0 do
+                table.insert(target, insert_pos, bit.bor(0x80, bit.band(number, 0x7F)))
+                number = bit.rshift(number, 7)
+            end
+        end
+        
+        local byte_colors, byte_lengths = {}, {}
+        for i=1, #colors do 
+            encode_bits(byte_colors, colors[i])
+            encode_bits(byte_lengths, lengths[i]) 
+        end
+        local color_str = ""
+        local len_str = ""
+        for i=1, #byte_colors, 4096 do color_str = color_str .. string.char(unpack(byte_colors, i, math.min(i + 4095, #byte_colors))) end
+        for i=1, #byte_lengths, 4096 do len_str = len_str .. string.char(unpack(byte_lengths, i, math.min(i + 4095, #byte_lengths))) end
+        
         table.remove(bitmap_history)
-        table.insert(bitmap_history, {byte_str, len_str, palette, width, height})
+        table.insert(bitmap_history, {color_str, len_str, palette, width, height})
         if mismatch == true then
             if #bitmap_history > 10 then table.remove(bitmap_history, 1) end
         else
@@ -1376,19 +1390,32 @@ function Canvas(x, y, width, height)
         local bitmap = self.bitmap
         local copy = table.remove(bitmap_history)
         if copy then
-            local bytes, lengths, palette, width, height = unpack(copy)
+            local colors, lengths, palette, width, height = unpack(copy)
             if width ~= self.width or height ~= self.height then 
                 self.width, self.height = width, height
                 self:resize(width, height)
             end
             local x,y = 1,1
-            for pos=1, bytes:len() do
-                local color, length = palette[bytes:byte(pos)], lengths:byte(pos) + 1
+            local color_pos, len_pos = 1, 1
+            while color_pos <= colors:len() do
+                local byte1 = bit.band(colors:byte(color_pos), 0x7f)
+                local byte2 = bit.band(lengths:byte(len_pos), 0x7f)
+                while colors:byte(color_pos) >= 0x80 do 
+                    color_pos = color_pos + 1
+                    byte1 = bit.lshift(byte1, 7) + bit.band(colors:byte(color_pos), 0x7F)
+                end
+                while lengths:byte(len_pos) >= 0x80 do 
+                    len_pos = len_pos + 1
+                    byte2 = bit.lshift(byte2, 7) + bit.band(lengths:byte(len_pos), 0x7F)
+                end
+                local color, length = palette[byte1], byte2 + 1
                 for i=1,length do
                     if color ~= "unchanged" then bitmap[x][y] = color end
                     if y == height then y = 1; x = x + 1
                     else y = y + 1 end
                 end
+                color_pos = color_pos + 1
+                len_pos = len_pos + 1
             end
         end
     end
@@ -1498,7 +1525,6 @@ function Canvas(x, y, width, height)
         self.width = width
         self.height = height
         self:resize()
-        
         for y=height, 1, -1 do
             for x=1, width do
                 bitmap[x][y] = bit.lshift(to_int(file:read(3)), 8) + 0xFF

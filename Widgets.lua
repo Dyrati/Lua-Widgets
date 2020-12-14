@@ -1,3 +1,49 @@
+-- Created by Dyrati
+-- Find it on github: https://github.com/Dyrati/Lua-Widgets
+
+
+if bizstring then
+    require "Aliases"
+
+    function gui.box(x1, y1, x2, y2, c1, c2)
+        if c1 then c1 = bit.ror(c1, 8) end
+        if c2 then c2 = bit.ror(c2, 8) end
+        gui.drawBox(x1, y1, x2, y2, c2, c1)
+    end
+
+    function gui.line(x1, y1, x2, y2, c)
+        if c then c = bit.ror(c, 8) end
+        gui.drawLine(x1, y1, x2, y2, c)
+    end
+
+    function gui.pixel(x, y, c)
+        if c then c = bit.ror(c, 8) end
+        gui.drawPixel(x, y, c)
+    end
+
+    gui.text = gui.pixelText
+
+    function modifiedinput()
+        local initfunc = input.get
+        return function()
+            keys = initfunc()
+            for k,v in pairs(keys) do
+                if Aliases[k] then
+                    keys[Aliases[k]] = v
+                end
+            end
+            if input.getmouse then 
+                mouse = input.getmouse()
+                keys.xmouse = mouse["X"]
+                keys.ymouse = mouse["Y"]
+            end
+            return keys
+        end
+    end
+    input.get = modifiedinput()
+end
+
+
 -- Character list entry format: character: {pressed,  shift+pressed}
 
 TotalCharList = {
